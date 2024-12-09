@@ -1,43 +1,104 @@
 package main
 
 import (
-	"net/http" // Importing the net/http package for HTTP request/response handling
-	"github.com/gorilla/mux" // Importing the mux package for routing HTTP requests
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http" 
+
+	"github.com/gorilla/mux" 
 )
 
-// TasksService struct represents the service layer for handling tasks.
-// It contains a 'store' field of type Store, which will be used to interact with the data store (e.g., database).
+var errNameRequired = errors.New("name is Required")
+var errProjectIdRequired = errors.New("project ID is Required")
+var errUserIDRequired = errors.New("user ID is Required")
+
 type TasksService struct {
-	store Store // Store is an interface (or type) representing the data store where tasks are managed
+	store Store
 }
 
-// NewTasksService is a constructor function that creates and returns a new instance of TasksService.
-// It takes a 'Store' type (which implements the data storage logic) as a parameter.
 func NewTasksService(s Store) *TasksService {
-	return &TasksService{store: s} // Returns a pointer to a new TasksService with the provided store
+	return &TasksService{store: s} 
 }
 
-// RegisterRoutes is a method on TasksService that registers the HTTP routes for task-related operations.
-// It takes a *mux.Router as a parameter, which will be used to define and handle HTTP routes.
 func (s *TasksService) RegisterRoutes(r *mux.Router) {
-	// Register a POST route for creating tasks. When the client sends a POST request to "/tasks",
-	// it will trigger the HandleCreateTask method.
-	r.HandleFunc("/tasks", s.HandleCreateTask).Methods("POST")
-
-	// Register a GET route for retrieving a task by its ID. The ID is extracted from the URL path parameter.
-	// When the client sends a GET request to "/tasks/{id}", it will trigger the HandleGetTask method.
-	r.HandleFunc("/tasks/{id}", s.HandleGetTask).Methods("GET")
+	r.HandleFunc("/tasks",  WithJWTAuth(s.HandleCreateTask, s.store)).Methods("POST")
+	r.HandleFunc("/tasks/{id}", WithJWTAuth(s.HandleGetTask, s.store)).Methods("GET")
 }
 
-// HandleCreateTask is a placeholder method for handling the creation of a task.
-// The method will accept an HTTP POST request and write a response using the http.ResponseWriter.
 func (s *TasksService) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
-	// This method is currently empty, but it would contain logic to create a task in the store (e.g., database)
-	
+	body,err := io.ReadAll(r.Body)
+	if err != nil {
+		WriteJSON(w,http.StatusBadRequest,ErrorResponse{
+			Error: "Invalid Request Payload!",
+		})
+		return
+	}
+
+	defer r.Body.Close()
+
+	var task *Task
+	err = json.Unmarshal(body,&task)
+	if err != nil {
+		WriteJSON(w,http.StatusBadRequest,ErrorResponse{
+			Error: "Invalid Request Payload",
+		})
+		return
+	}
+
+	if err := validateTaskPayload(task); err != nil {
+		WriteJSON(w,http.StatusBadRequest,ErrorResponse{
+			Error: err.Error(),
+		})
+		return 
+	}
+
+	t,err := s.store.CreateTask(task)
+	if err != nil {
+		WriteJSON(w,http.StatusInternalServerError,ErrorResponse{
+			Error: "Error Creating Task",
+		})
+		return
+	}
+
+	WriteJSON(w,http.StatusCreated,t)
+
+
 }
 
-// HandleGetTask is a placeholder method for handling the retrieval of a task.
-// The method will accept an HTTP GET request with a task ID in the URL and write the task's details to the response.
+func validateTaskPayload(task *Task) error {
+	if task.Name == "" {
+		return errNameRequired
+	}
+	if task.ProjectID == 0 {
+		return errProjectIdRequired
+	}
+	if task.AssignedToID == 0 {
+		return errUserIDRequired
+	}
+
+	return nil
+
+}
+
 func (s *TasksService) HandleGetTask(w http.ResponseWriter, r *http.Request) {
-	// This method is currently empty, but it would contain logic to retrieve a task from the store by its ID
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	if id == ""{
+		WriteJSON(w,http.StatusBadRequest,ErrorResponse{
+			Error: "id is Required",
+		})
+		return
+	}
+
+	t,err := s.store.GetTask(id)
+	if err != nil {
+		WriteJSON(w,http.StatusInternalServerError,ErrorResponse{
+			Error: "task not found",
+		})
+		return
+	}
+
+	WriteJSON(w,http.StatusOK,t)
 }

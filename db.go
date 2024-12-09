@@ -1,45 +1,85 @@
 package main
 
 import (
-	"database/sql" // Importing the database/sql package for SQL database handling
-	"github.com/go-sql-driver/mysql" // Importing the MySQL driver for Go to interact with MySQL databases
-	"log" // Importing the log package for logging
+	"database/sql"
+	"github.com/go-sql-driver/mysql"
+	"log"
 )
 
-// MySQLStorage struct represents the storage layer that connects to the MySQL database.
-// It holds a reference to an open database connection.
 type MySQLStorage struct {
-	db *sql.DB // db is a pointer to the SQL database connection object
+	db *sql.DB
 }
 
-// NewMySQLStorage is a constructor function that creates and returns a new instance of MySQLStorage.
-// It accepts a MySQL config (mysql.Config) for setting up the database connection.
-func NewMySQLStorage(cfg mysql.Config) *MySQLStorage { // function should start with 'func'
-	// Opening a connection to the MySQL database using the provided configuration
+func NewMySQLStorage(cfg mysql.Config) *MySQLStorage {
 	db, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
-		// If there is an error opening the connection, log the error and terminate the program
 		log.Fatal(err)
 	}
 
-	// Ping the database to ensure that the connection is successful
 	err = db.Ping()
 	if err != nil {
-		// If there is an error pinging the database, log the error and terminate the program
 		log.Fatal(err)
 	}
 
-	// Log a message indicating that the connection to the MySQL database was successful
 	log.Println("Connected to MYSQL")
-
-	// Return a pointer to a new MySQLStorage instance, with the opened database connection
-	return &MySQLStorage{db: db} // Return the MySQLStorage object containing the db connection
+	return &MySQLStorage{db: db}
 }
 
-// Init is a method on the MySQLStorage struct that initializes the database connection and prepares it for use.
-// Currently, it only returns the existing database connection.
 func (s *MySQLStorage) Init() (*sql.DB, error) {
-	// Placeholder for future database table initialization or other setup code.
-	// Currently, it just returns the existing database connection without any additional setup.
+	if err := s.createProjectTable(); err != nil {
+		return nil, err
+	}
+	if err := s.createUserTable(); err != nil {
+		return nil, err
+	}
+	if err := s.createTasksTable(); err != nil {
+		return nil, err
+	}
+
 	return s.db, nil
+}
+
+func (s *MySQLStorage) createProjectTable() error {
+	_, err := s.db.Exec(`
+	CREATE TABLE IF NOT EXISTS projects (
+		id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+		name VARCHAR(255) NOT NULL,
+		createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (id)
+	) ENGINE = InnoDB DEFAULT CHARSET = utf8
+	`)
+	return err
+}
+
+func (s *MySQLStorage) createUserTable() error {
+	_, err := s.db.Exec(`
+	CREATE TABLE IF NOT EXISTS users (
+		id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+		email VARCHAR(255) NOT NULL,
+		firstName VARCHAR(255) NOT NULL,
+		lastName VARCHAR(255) NOT NULL,
+		password VARCHAR(255) NOT NULL,
+		createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		UNIQUE KEY (email)
+	) ENGINE = InnoDB DEFAULT CHARSET = utf8
+	`)
+	return err
+}
+
+func (s *MySQLStorage) createTasksTable() error {
+	_, err := s.db.Exec(`
+	CREATE TABLE IF NOT EXISTS tasks (
+		id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+		name VARCHAR(255) NOT NULL,
+		status ENUM('TODO','IN_PROGRESS','IN_TESTING','DONE') NOT NULL DEFAULT 'TODO',
+		projectID INT UNSIGNED NOT NULL,
+		assignedToID INT UNSIGNED,
+		createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		FOREIGN KEY (assignedToID) REFERENCES users(id),
+		FOREIGN KEY (projectID) REFERENCES projects(id)
+	) ENGINE = InnoDB DEFAULT CHARSET = utf8
+	`)
+	return err
 }
